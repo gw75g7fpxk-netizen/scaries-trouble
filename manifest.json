@@ -1,0 +1,9 @@
+{
+    "name": "Scaries Trouble",
+    "short_name": "Scaries Trouble",
+    "display": "fullscreen",
+    "background_color": "#5c8a3c",
+    "theme_color": "#5c8a3c",
+    "start_url": ".",
+    "icons": []
+}

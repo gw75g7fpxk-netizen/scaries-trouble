@@ -11,11 +11,11 @@ class GameScene extends Phaser.Scene {
     create() {
         const { width, height } = this.scale;
 
-        // Sky-blue background
-        this.add.rectangle(width / 2, height / 2, width, height, 0x87ceeb);
+        // Grass background
+        this.add.rectangle(width / 2, height / 2, width, height, 0x5c8a3c);
 
-        // Ground strip
-        this.add.rectangle(width / 2, height - 20, width, 40, 0x5c8a3c);
+        // Darker grass strip at the bottom for depth
+        this.add.rectangle(width / 2, height - 20, width, 40, 0x3d6b26);
 
         // Physics world bounds
         this.physics.world.setBounds(0, 0, width, height);
@@ -147,7 +147,7 @@ class GameScene extends Phaser.Scene {
 const config = {
     type: Phaser.AUTO,
     parent: 'game-container',
-    backgroundColor: '#87ceeb',
+    backgroundColor: '#5c8a3c',
     physics: {
         default: 'arcade',
         arcade: { gravity: { y: 0 }, debug: false }

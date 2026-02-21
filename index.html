@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="manifest.json" />
     <title>Scaries Trouble</title>
     <style>
         * {
@@ -12,12 +15,13 @@
         }
 
         body {
-            background: #000;
+            background: #5c8a3c;
             display: flex;
             justify-content: center;
             align-items: center;
             width: 100vw;
             height: 100vh;
+            min-height: -webkit-fill-available;
             overflow: hidden;
         }
 
