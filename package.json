@@ -1,0 +1,17 @@
+{
+  "name": "scaries-trouble",
+  "version": "1.0.0",
+  "description": "A Phaser.js game featuring a movable character controlled via D-pad or keyboard",
+  "scripts": {
+    "start": "npx serve . --listen 8080"
+  },
+  "keywords": [
+    "phaser",
+    "game",
+    "javascript"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "phaser": "^3.60.0"
+  }
+}
