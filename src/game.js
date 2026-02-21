@@ -22,7 +22,7 @@ class GameScene extends Phaser.Scene {
 
         // Player sprite - scale to fit while preserving aspect ratio
         this.player = this.physics.add.image(width / 2, height / 2, 'player');
-        const targetWidth = Math.min(80, width * 0.1);
+        const targetWidth = Math.min(120, width * 0.15);
         const aspectRatio = this.player.height / this.player.width;
         this.player.setDisplaySize(targetWidth, targetWidth * aspectRatio);
         this.player.setCollideWorldBounds(true);
