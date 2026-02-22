@@ -22,6 +22,9 @@ class GameScene extends Phaser.Scene {
         // Darker grass strip at the bottom for depth
         this.add.rectangle(width / 2, height - 20, width, 40, 0x3d6b26);
 
+        // Houses near the top
+        this.createHouses();
+
         // Physics world bounds
         this.physics.world.setBounds(0, 0, width, height);
 
@@ -52,6 +55,55 @@ class GameScene extends Phaser.Scene {
 
         // Resize listener
         this.scale.on('resize', this.onResize, this);
+    }
+
+    createHouses() {
+        const { width, height } = this.scale;
+        const houseW = 72;
+        const houseH = 56;
+        const roofH = 36;
+        const baseY = Math.round(height * 0.18);
+        const positions = [
+            Math.round(width * 0.18),
+            Math.round(width * 0.50),
+            Math.round(width * 0.82)
+        ];
+        const wallColors = [0xc0704a, 0xa0b860, 0x6890c8];
+        const roofColors = [0x8b2020, 0x5a7a20, 0x204880];
+        const doorColor   = 0x6b3a1f;
+        const windowColor = 0xd4eeff;
+
+        positions.forEach((cx, i) => {
+            const g = this.add.graphics();
+
+            // Wall
+            g.fillStyle(wallColors[i], 1);
+            g.fillRect(cx - houseW / 2, baseY, houseW, houseH);
+
+            // Roof (triangle)
+            g.fillStyle(roofColors[i], 1);
+            g.fillTriangle(
+                cx - houseW / 2 - 6, baseY,
+                cx + houseW / 2 + 6, baseY,
+                cx, baseY - roofH
+            );
+
+            // Door
+            const doorW = 14, doorH = 20;
+            g.fillStyle(doorColor, 1);
+            g.fillRect(cx - doorW / 2, baseY + houseH - doorH, doorW, doorH);
+
+            // Windows (two small squares)
+            const winSize = 13;
+            const winY = baseY + 12;
+            g.fillStyle(windowColor, 1);
+            g.fillRect(cx - houseW / 2 + 10, winY, winSize, winSize);
+            g.fillRect(cx + houseW / 2 - 10 - winSize, winY, winSize, winSize);
+
+            // Outline
+            g.lineStyle(2, 0x000000, 0.5);
+            g.strokeRect(cx - houseW / 2, baseY, houseW, houseH);
+        });
     }
 
     createDpad() {
