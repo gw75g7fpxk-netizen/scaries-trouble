@@ -2,6 +2,11 @@ class GameScene extends Phaser.Scene {
     constructor() {
         super({ key: 'GameScene' });
         this.dpad = { up: false, down: false, left: false, right: false };
+        this.playerHealth = 3;
+        this.isAttacking = false;
+        this.isShielding = false;
+        this.shieldOffset = 40;
+        this.attackOffset = 50;
     }
 
     preload() {
@@ -38,6 +43,12 @@ class GameScene extends Phaser.Scene {
 
         // D-pad
         this.createDpad();
+
+        // Health hearts (top-left)
+        this.createHearts();
+
+        // Attack and shield buttons (bottom-right)
+        this.createActionButtons();
 
         // Resize listener
         this.scale.on('resize', this.onResize, this);
@@ -111,6 +122,139 @@ class GameScene extends Phaser.Scene {
         this.input.addPointer(3);
     }
 
+    createHearts() {
+        const margin = 16;
+        const heartSpacing = 34;
+        const maxHearts = 3;
+        this.heartDisplays = [];
+        for (let i = 0; i < maxHearts; i++) {
+            const hx = margin + i * heartSpacing + 14;
+            const hy = margin + 14;
+            const heart = this.add.text(hx, hy, '♥', {
+                fontSize: '28px',
+                color: '#e03030',
+                stroke: '#000000',
+                strokeThickness: 2
+            }).setOrigin(0.5).setDepth(20);
+            this.heartDisplays.push(heart);
+        }
+    }
+
+    createActionButtons() {
+        const btnSize = 60;
+        const gap = 14;
+        const margin = 16;
+        const { width, height } = this.scale;
+
+        const btnY = height - margin - btnSize / 2;
+        const attackX = width - margin - btnSize / 2;
+        const shieldX = attackX - btnSize - gap;
+
+        this.createActionButton(attackX, btnY, '⚔', 0x8b1a1a, 'attack');
+        this.createActionButton(shieldX, btnY, '🛡', 0x1a3a8b, 'shield');
+    }
+
+    createActionButton(x, y, label, color, action) {
+        const btnSize = 60;
+        const container = this.add.container(x, y);
+        container.setDepth(10);
+
+        const bg = this.add.graphics();
+        bg.fillStyle(color, 0.75);
+        bg.fillRoundedRect(-btnSize / 2, -btnSize / 2, btnSize, btnSize, 12);
+        bg.lineStyle(2, 0xffffff, 0.4);
+        bg.strokeRoundedRect(-btnSize / 2, -btnSize / 2, btnSize, btnSize, 12);
+
+        const text = this.add.text(0, 0, label, {
+            fontSize: '26px',
+            color: '#ffffff',
+            stroke: '#000000',
+            strokeThickness: 2
+        }).setOrigin(0.5);
+
+        container.add([bg, text]);
+
+        const hitArea = new Phaser.Geom.Rectangle(-btnSize / 2, -btnSize / 2, btnSize, btnSize);
+        container.setInteractive(hitArea, Phaser.Geom.Rectangle.Contains);
+
+        container.on('pointerdown', () => {
+            bg.clear();
+            bg.fillStyle(color, 1.0);
+            bg.fillRoundedRect(-btnSize / 2, -btnSize / 2, btnSize, btnSize, 12);
+            bg.lineStyle(2, 0xffffff, 0.8);
+            bg.strokeRoundedRect(-btnSize / 2, -btnSize / 2, btnSize, btnSize, 12);
+
+            if (action === 'attack') {
+                this.performAttack();
+            } else if (action === 'shield') {
+                this.isShielding = true;
+                this.showShield();
+            }
+        });
+
+        const release = () => {
+            bg.clear();
+            bg.fillStyle(color, 0.75);
+            bg.fillRoundedRect(-btnSize / 2, -btnSize / 2, btnSize, btnSize, 12);
+            bg.lineStyle(2, 0xffffff, 0.4);
+            bg.strokeRoundedRect(-btnSize / 2, -btnSize / 2, btnSize, btnSize, 12);
+
+            if (action === 'shield') {
+                this.isShielding = false;
+                this.hideShield();
+            }
+        };
+
+        container.on('pointerup', release);
+        container.on('pointerout', release);
+    }
+
+    performAttack() {
+        if (this.isAttacking) return;
+        this.isAttacking = true;
+
+        const offsetX = this.player.flipX ? -this.attackOffset : this.attackOffset;
+        const sword = this.add.text(
+            this.player.x + offsetX,
+            this.player.y,
+            '⚔',
+            { fontSize: '36px', color: '#ffffff', stroke: '#000000', strokeThickness: 2 }
+        ).setOrigin(0.5).setDepth(15);
+
+        const startAngle = this.player.flipX ? 60 : -60;
+        sword.setAngle(startAngle);
+
+        this.tweens.add({
+            targets: sword,
+            angle: this.player.flipX ? -60 : 60,
+            alpha: 0,
+            duration: 350,
+            ease: 'Power2',
+            onComplete: () => {
+                sword.destroy();
+                this.isAttacking = false;
+            }
+        });
+    }
+
+    showShield() {
+        if (this.shieldDisplay) return;
+        const offsetX = this.player.flipX ? this.shieldOffset : -this.shieldOffset;
+        this.shieldDisplay = this.add.text(
+            this.player.x + offsetX,
+            this.player.y,
+            '🛡',
+            { fontSize: '40px', stroke: '#000000', strokeThickness: 2 }
+        ).setOrigin(0.5).setDepth(15);
+    }
+
+    hideShield() {
+        if (this.shieldDisplay) {
+            this.shieldDisplay.destroy();
+            this.shieldDisplay = null;
+        }
+    }
+
     onResize(gameSize) {
         const { width, height } = gameSize;
         this.physics.world.setBounds(0, 0, width, height);
@@ -140,6 +284,12 @@ class GameScene extends Phaser.Scene {
             this.player.setFlipX(true);
         } else if (vx > 0) {
             this.player.setFlipX(false);
+        }
+
+        // Keep shield display attached to the player
+        if (this.shieldDisplay) {
+            const offsetX = this.player.flipX ? this.shieldOffset : -this.shieldOffset;
+            this.shieldDisplay.setPosition(this.player.x + offsetX, this.player.y);
         }
     }
 }
