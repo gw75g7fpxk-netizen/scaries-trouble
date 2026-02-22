@@ -1,3 +1,6 @@
+const WORLD_WIDTH = 3200;
+const WORLD_HEIGHT = 2400;
+
 class GameScene extends Phaser.Scene {
     constructor() {
         super({ key: 'GameScene' });
@@ -16,24 +19,28 @@ class GameScene extends Phaser.Scene {
     create() {
         const { width, height } = this.scale;
 
-        // Grass background
-        this.add.rectangle(width / 2, height / 2, width, height, 0x5c8a3c);
+        // Grass background (covers the entire world)
+        this.add.rectangle(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, WORLD_WIDTH, WORLD_HEIGHT, 0x5c8a3c);
 
-        // Darker grass strip at the bottom for depth
-        this.add.rectangle(width / 2, height - 20, width, 40, 0x3d6b26);
+        // Darker grass strip at the bottom of the world for depth
+        this.add.rectangle(WORLD_WIDTH / 2, WORLD_HEIGHT - 20, WORLD_WIDTH, 40, 0x3d6b26);
 
         // Houses near the top
         this.createHouses();
 
-        // Physics world bounds
-        this.physics.world.setBounds(0, 0, width, height);
+        // Physics world bounds (full world size)
+        this.physics.world.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
         // Player sprite - scale to fit while preserving aspect ratio
-        this.player = this.physics.add.image(width / 2, height / 2, 'player');
+        this.player = this.physics.add.image(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, 'player');
         const targetWidth = Math.min(120, width * 0.15);
         const aspectRatio = this.player.height / this.player.width;
         this.player.setDisplaySize(targetWidth, targetWidth * aspectRatio);
         this.player.setCollideWorldBounds(true);
+
+        // Camera follows the player within world bounds
+        this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+        this.cameras.main.startFollow(this.player);
 
         // Keyboard input
         this.cursors = this.input.keyboard.createCursorKeys();
@@ -58,30 +65,37 @@ class GameScene extends Phaser.Scene {
     }
 
     createHouses() {
-        const { width, height } = this.scale;
         const houseW = 72;
         const houseH = 56;
         const roofH = 36;
-        const baseY = Math.round(height * 0.18);
-        const positions = [
-            Math.round(width * 0.18),
-            Math.round(width * 0.50),
-            Math.round(width * 0.82)
-        ];
         const wallColors = [0xc0704a, 0xa0b860, 0x6890c8];
         const roofColors = [0x8b2020, 0x5a7a20, 0x204880];
         const doorColor   = 0x6b3a1f;
         const windowColor = 0xd4eeff;
 
-        positions.forEach((cx, i) => {
+        // Houses spread across the world at various positions
+        const housePositions = [
+            { cx: Math.round(WORLD_WIDTH * 0.10), baseY: Math.round(WORLD_HEIGHT * 0.08), colorIdx: 0 },
+            { cx: Math.round(WORLD_WIDTH * 0.30), baseY: Math.round(WORLD_HEIGHT * 0.08), colorIdx: 1 },
+            { cx: Math.round(WORLD_WIDTH * 0.50), baseY: Math.round(WORLD_HEIGHT * 0.08), colorIdx: 2 },
+            { cx: Math.round(WORLD_WIDTH * 0.70), baseY: Math.round(WORLD_HEIGHT * 0.08), colorIdx: 0 },
+            { cx: Math.round(WORLD_WIDTH * 0.90), baseY: Math.round(WORLD_HEIGHT * 0.08), colorIdx: 1 },
+            { cx: Math.round(WORLD_WIDTH * 0.20), baseY: Math.round(WORLD_HEIGHT * 0.50), colorIdx: 2 },
+            { cx: Math.round(WORLD_WIDTH * 0.80), baseY: Math.round(WORLD_HEIGHT * 0.50), colorIdx: 0 },
+            { cx: Math.round(WORLD_WIDTH * 0.15), baseY: Math.round(WORLD_HEIGHT * 0.88), colorIdx: 1 },
+            { cx: Math.round(WORLD_WIDTH * 0.50), baseY: Math.round(WORLD_HEIGHT * 0.88), colorIdx: 2 },
+            { cx: Math.round(WORLD_WIDTH * 0.85), baseY: Math.round(WORLD_HEIGHT * 0.88), colorIdx: 0 },
+        ];
+
+        housePositions.forEach(({ cx, baseY, colorIdx }) => {
             const g = this.add.graphics();
 
             // Wall
-            g.fillStyle(wallColors[i], 1);
+            g.fillStyle(wallColors[colorIdx], 1);
             g.fillRect(cx - houseW / 2, baseY, houseW, houseH);
 
             // Roof (triangle)
-            g.fillStyle(roofColors[i], 1);
+            g.fillStyle(roofColors[colorIdx], 1);
             g.fillTriangle(
                 cx - houseW / 2 - 6, baseY,
                 cx + houseW / 2 + 6, baseY,
@@ -127,6 +141,7 @@ class GameScene extends Phaser.Scene {
         positions.forEach(({ x, y, dir, label }) => {
             const container = this.add.container(x, y);
             container.setDepth(10);
+            container.setScrollFactor(0);
 
             const bg = this.add.graphics();
             bg.fillStyle(0x222222, 0.75);
@@ -187,7 +202,7 @@ class GameScene extends Phaser.Scene {
                 color: '#e03030',
                 stroke: '#000000',
                 strokeThickness: 2
-            }).setOrigin(0.5).setDepth(20);
+            }).setOrigin(0.5).setDepth(20).setScrollFactor(0);
             this.heartDisplays.push(heart);
         }
     }
@@ -210,6 +225,7 @@ class GameScene extends Phaser.Scene {
         const btnSize = 60;
         const container = this.add.container(x, y);
         container.setDepth(10);
+        container.setScrollFactor(0);
 
         const bg = this.add.graphics();
         bg.fillStyle(color, 0.75);
@@ -308,8 +324,8 @@ class GameScene extends Phaser.Scene {
     }
 
     onResize(gameSize) {
-        const { width, height } = gameSize;
-        this.physics.world.setBounds(0, 0, width, height);
+        this.physics.world.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+        this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
     }
 
     update() {
