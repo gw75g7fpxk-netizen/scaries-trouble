@@ -32,15 +32,18 @@ class GameScene extends Phaser.Scene {
         this.physics.world.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
         // Player sprite - scale to fit while preserving aspect ratio
-        this.player = this.physics.add.image(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, 'player');
+        // Start near the top-center of the world where houses are visible
+        this.player = this.physics.add.image(WORLD_WIDTH / 2, Math.round(WORLD_HEIGHT * 0.15), 'player');
         const targetWidth = Math.min(120, width * 0.15);
         const aspectRatio = this.player.height / this.player.width;
         this.player.setDisplaySize(targetWidth, targetWidth * aspectRatio);
         this.player.setCollideWorldBounds(true);
 
         // Camera follows the player within world bounds
+        // Deadzone lets the player move around before the camera scrolls (Zelda-style)
         this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
-        this.cameras.main.startFollow(this.player);
+        this.cameras.main.startFollow(this.player, true, 1, 1);
+        this.cameras.main.setDeadzone(this.scale.width * 0.4, this.scale.height * 0.4);
 
         // Keyboard input
         this.cursors = this.input.keyboard.createCursorKeys();
@@ -88,35 +91,38 @@ class GameScene extends Phaser.Scene {
         ];
 
         housePositions.forEach(({ cx, baseY, colorIdx }) => {
-            const g = this.add.graphics();
+            // Position the graphics object at the house location so camera culling works correctly
+            const g = this.add.graphics({ x: cx, y: baseY });
+
+            // All drawing coordinates are now relative to (cx, baseY)
 
             // Wall
             g.fillStyle(wallColors[colorIdx], 1);
-            g.fillRect(cx - houseW / 2, baseY, houseW, houseH);
+            g.fillRect(-houseW / 2, 0, houseW, houseH);
 
             // Roof (triangle)
             g.fillStyle(roofColors[colorIdx], 1);
             g.fillTriangle(
-                cx - houseW / 2 - 6, baseY,
-                cx + houseW / 2 + 6, baseY,
-                cx, baseY - roofH
+                -houseW / 2 - 6, 0,
+                houseW / 2 + 6, 0,
+                0, -roofH
             );
 
             // Door
             const doorW = 14, doorH = 20;
             g.fillStyle(doorColor, 1);
-            g.fillRect(cx - doorW / 2, baseY + houseH - doorH, doorW, doorH);
+            g.fillRect(-doorW / 2, houseH - doorH, doorW, doorH);
 
             // Windows (two small squares)
             const winSize = 13;
-            const winY = baseY + 12;
+            const winY = 12;
             g.fillStyle(windowColor, 1);
-            g.fillRect(cx - houseW / 2 + 10, winY, winSize, winSize);
-            g.fillRect(cx + houseW / 2 - 10 - winSize, winY, winSize, winSize);
+            g.fillRect(-houseW / 2 + 10, winY, winSize, winSize);
+            g.fillRect(houseW / 2 - 10 - winSize, winY, winSize, winSize);
 
             // Outline
             g.lineStyle(2, 0x000000, 0.5);
-            g.strokeRect(cx - houseW / 2, baseY, houseW, houseH);
+            g.strokeRect(-houseW / 2, 0, houseW, houseH);
         });
     }
 
@@ -326,6 +332,7 @@ class GameScene extends Phaser.Scene {
     onResize(gameSize) {
         this.physics.world.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
         this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+        this.cameras.main.setDeadzone(gameSize.width * 0.4, gameSize.height * 0.4);
     }
 
     update() {
