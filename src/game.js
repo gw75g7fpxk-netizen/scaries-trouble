@@ -151,6 +151,49 @@ class GameScene extends Phaser.Scene {
             g.lineStyle(2, 0x000000, 0.5);
             g.strokeRect(-houseW / 2, 0, houseW, houseH);
 
+            // Driveway: small grass gap then a grey paved area in front of the house
+            const driveSpacing = 8;
+            const driveW = Math.round(houseW * 0.5);
+            const driveH = 20;
+            g.fillStyle(0x999999, 1);
+            g.fillRect(-driveW / 2, houseH + driveSpacing, driveW, driveH);
+            g.lineStyle(1, 0x777777, 0.8);
+            g.strokeRect(-driveW / 2, houseH + driveSpacing, driveW, driveH);
+
+            // Bushes in front of house (three bushes around the door area)
+            g.fillStyle(0x2a7d1a, 1);
+            g.fillCircle(-houseW / 2 + 9, houseH + 5, 8);
+            g.fillCircle(houseW / 2 - 9, houseH + 5, 8);
+            g.fillCircle(-doorW / 2 - 11, houseH + 5, 7);
+
+            // For blue houses: two kids playing ball outside with a red ball
+            if (colorIdx === 2) {
+                const frontY = houseH + 52; // yard area below the house and bushes
+                // Kid 1 (left)
+                const k1x = -28;
+                g.fillStyle(0xffcc88, 1);
+                g.fillCircle(k1x, frontY - 14, 5);
+                g.fillStyle(0xe03030, 1);
+                g.fillRect(k1x - 4, frontY - 9, 8, 10);
+                g.fillStyle(0x4040a0, 1);
+                g.fillRect(k1x - 4, frontY + 1, 3, 7);
+                g.fillRect(k1x + 1, frontY + 1, 3, 7);
+                // Kid 2 (right)
+                const k2x = 28;
+                g.fillStyle(0xffcc88, 1);
+                g.fillCircle(k2x, frontY - 14, 5);
+                g.fillStyle(0x30a040, 1);
+                g.fillRect(k2x - 4, frontY - 9, 8, 10);
+                g.fillStyle(0x4040a0, 1);
+                g.fillRect(k2x - 4, frontY + 1, 3, 7);
+                g.fillRect(k2x + 1, frontY + 1, 3, 7);
+                // Red ball between the kids
+                g.fillStyle(0xff2020, 1);
+                g.fillCircle(0, frontY - 6, 6);
+                g.fillStyle(0xffffff, 0.5);
+                g.fillCircle(-2, frontY - 8, 2);
+            }
+
             // Door drawn in its own graphics so it can be toggled open/closed
             const dg = this.add.graphics({ x: cx, y: baseY });
             dg.fillStyle(doorColor, 1);
