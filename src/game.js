@@ -10,6 +10,8 @@ class GameScene extends Phaser.Scene {
         this.isShielding = false;
         this.shieldOffset = 40;
         this.attackOffset = 50;
+        this.nearDoorIndex = -1;
+        this.interiorElements = null;
     }
 
     preload() {
@@ -38,6 +40,11 @@ class GameScene extends Phaser.Scene {
         const aspectRatio = this.player.height / this.player.width;
         this.player.setDisplaySize(targetWidth, targetWidth * aspectRatio);
         this.player.setCollideWorldBounds(true);
+
+        // Add collision between player and house walls
+        this.houseZones.forEach(zone => {
+            this.physics.add.collider(this.player, zone);
+        });
 
         // Camera follows the player within world bounds
         // Deadzone lets the player move around before the camera scrolls (Zelda-style)
@@ -75,6 +82,7 @@ class GameScene extends Phaser.Scene {
         const roofColors = [0x8b2020, 0x5a7a20, 0x204880];
         const doorColor   = 0x6b3a1f;
         const windowColor = 0xd4eeff;
+        const doorW = 14, doorH = 20;
 
         // Houses spread across the world at various positions
         const housePositions = [
@@ -90,7 +98,13 @@ class GameScene extends Phaser.Scene {
             { cx: Math.round(WORLD_WIDTH * 0.85), baseY: Math.round(WORLD_HEIGHT * 0.88), colorIdx: 0 },
         ];
 
-        housePositions.forEach(({ cx, baseY, colorIdx }) => {
+        this.houseZones = [];
+        this.houseDoors = [];
+        this.openDoors = new Set();
+        this.houseDoorGraphics = [];
+        this.houseDoorButtons = [];
+
+        housePositions.forEach(({ cx, baseY, colorIdx }, index) => {
             // Position the graphics object at the house location so camera culling works correctly
             const g = this.add.graphics({ x: cx, y: baseY });
 
@@ -108,11 +122,6 @@ class GameScene extends Phaser.Scene {
                 0, -roofH
             );
 
-            // Door
-            const doorW = 14, doorH = 20;
-            g.fillStyle(doorColor, 1);
-            g.fillRect(-doorW / 2, houseH - doorH, doorW, doorH);
-
             // Windows (two small squares)
             const winSize = 13;
             const winY = 12;
@@ -123,7 +132,175 @@ class GameScene extends Phaser.Scene {
             // Outline
             g.lineStyle(2, 0x000000, 0.5);
             g.strokeRect(-houseW / 2, 0, houseW, houseH);
+
+            // Door drawn in its own graphics so it can be toggled open/closed
+            const dg = this.add.graphics({ x: cx, y: baseY });
+            dg.fillStyle(doorColor, 1);
+            dg.fillRect(-doorW / 2, houseH - doorH, doorW, doorH);
+            this.houseDoorGraphics.push(dg);
+
+            // Invisible static collision zone covering the house walls
+            const zone = this.add.zone(cx, baseY + houseH / 2, houseW, houseH);
+            this.physics.add.existing(zone, true);
+            this.houseZones.push(zone);
+
+            // Store the world-space door position (bottom-center of house wall)
+            this.houseDoors.push({ x: cx, y: baseY + houseH });
+
+            // Door button positioned above the roof peak, hidden until player is nearby
+            const btn = this.createWorldDoorButton(cx, baseY - roofH - 14, index);
+            btn.setVisible(false);
+            this.houseDoorButtons.push(btn);
         });
+    }
+
+    createWorldDoorButton(x, y, houseIndex) {
+        const btnW = 72, btnH = 28;
+        const container = this.add.container(x, y);
+        container.setDepth(5);
+
+        const bg = this.add.graphics();
+        bg.fillStyle(0x3a1a00, 0.92);
+        bg.fillRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 7);
+        bg.lineStyle(2, 0xffd700, 1);
+        bg.strokeRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 7);
+
+        const text = this.add.text(0, 0, '🚪 Door', {
+            fontSize: '14px',
+            color: '#ffd700',
+            stroke: '#000000',
+            strokeThickness: 2
+        }).setOrigin(0.5);
+
+        container.add([bg, text]);
+
+        const hitArea = new Phaser.Geom.Rectangle(-btnW / 2, -btnH / 2, btnW, btnH);
+        container.setInteractive(hitArea, Phaser.Geom.Rectangle.Contains);
+
+        container.on('pointerdown', () => {
+            this.openDoor(houseIndex);
+        });
+
+        return container;
+    }
+
+    openDoor(houseIndex) {
+        this.openDoors.add(houseIndex);
+
+        // Redraw door as a dark open doorway
+        const houseH = 56;
+        const doorW = 14, doorH = 20;
+        const dg = this.houseDoorGraphics[houseIndex];
+        dg.clear();
+        dg.fillStyle(0x1a0800, 1);
+        dg.fillRect(-doorW / 2, houseH - doorH, doorW, doorH);
+
+        this.showHouseInterior(houseIndex);
+    }
+
+    showHouseInterior(houseIndex) {
+        // Only one interior view can be shown at a time
+        if (this.interiorElements) return;
+
+        const { width, height } = this.scale;
+        this.interiorElements = [];
+
+        // Dark overlay that blocks interaction with the game world
+        const overlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.85)
+            .setScrollFactor(0).setDepth(50).setInteractive();
+        this.interiorElements.push(overlay);
+
+        // Room dimensions and position
+        const roomW = Math.min(width * 0.85, 420);
+        const roomH = Math.min(height * 0.72, 360);
+        const rx = width / 2;
+        const ry = height / 2 - 10;
+
+        const room = this.add.graphics().setScrollFactor(0).setDepth(51);
+        // Floor
+        room.fillStyle(0xc8a068, 1);
+        room.fillRect(rx - roomW / 2, ry - roomH / 2, roomW, roomH);
+        // Upper wall strip
+        room.fillStyle(0xd4b07a, 1);
+        room.fillRect(rx - roomW / 2, ry - roomH / 2, roomW, roomH * 0.35);
+        // Border
+        room.lineStyle(4, 0x5a3a10, 1);
+        room.strokeRect(rx - roomW / 2, ry - roomH / 2, roomW, roomH);
+        // Baseboard
+        room.lineStyle(3, 0x8b6020, 1);
+        room.strokeRect(rx - roomW / 2 + 4, ry - roomH / 2 + roomH * 0.35, roomW - 8, roomH * 0.65 - 4);
+        this.interiorElements.push(room);
+
+        const furniture = this.add.graphics().setScrollFactor(0).setDepth(52);
+        // Table
+        furniture.fillStyle(0x6b3a1f, 1);
+        furniture.fillRect(rx - 40, ry - 10, 80, 35);
+        furniture.lineStyle(2, 0x3a1a00, 1);
+        furniture.strokeRect(rx - 40, ry - 10, 80, 35);
+        // Table legs
+        furniture.fillStyle(0x4a2800, 1);
+        furniture.fillRect(rx - 36, ry + 25, 8, 20);
+        furniture.fillRect(rx + 28, ry + 25, 8, 20);
+        // Chairs
+        furniture.fillStyle(0x8b4513, 1);
+        furniture.fillRect(rx - 64, ry, 22, 22);
+        furniture.fillRect(rx + 42, ry, 22, 22);
+        // Bookshelf on wall
+        furniture.fillStyle(0x5a2d0c, 1);
+        furniture.fillRect(rx - roomW / 2 + 16, ry - roomH / 2 + 8, 50, 70);
+        furniture.lineStyle(1, 0x000000, 0.6);
+        furniture.strokeRect(rx - roomW / 2 + 16, ry - roomH / 2 + 8, 50, 70);
+        // Books on shelf
+        const bookColors = [0xe03030, 0x3070e0, 0x30a030, 0xe0a020];
+        for (let b = 0; b < 4; b++) {
+            furniture.fillStyle(bookColors[b], 1);
+            furniture.fillRect(rx - roomW / 2 + 18 + b * 12, ry - roomH / 2 + 12, 10, 28);
+        }
+        // Window on wall
+        furniture.fillStyle(0x8ab4d0, 1);
+        furniture.fillRect(rx + 20, ry - roomH / 2 + 12, 50, 40);
+        furniture.lineStyle(3, 0x5a3a10, 1);
+        furniture.strokeRect(rx + 20, ry - roomH / 2 + 12, 50, 40);
+        furniture.lineStyle(1, 0x5a3a10, 1);
+        furniture.lineBetween(rx + 45, ry - roomH / 2 + 12, rx + 45, ry - roomH / 2 + 52);
+        furniture.lineBetween(rx + 20, ry - roomH / 2 + 32, rx + 70, ry - roomH / 2 + 32);
+        this.interiorElements.push(furniture);
+
+        const title = this.add.text(rx, ry - roomH / 2 - 18, '🏠 Inside the House', {
+            fontSize: '18px',
+            color: '#ffd700',
+            stroke: '#000000',
+            strokeThickness: 3
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(53);
+        this.interiorElements.push(title);
+
+        // Exit button
+        const exitBtnW = 80, exitBtnH = 34;
+        const exitX = rx;
+        const exitY = ry + roomH / 2 + 22;
+
+        const exitBg = this.add.graphics().setScrollFactor(0).setDepth(53);
+        exitBg.fillStyle(0x8b1a1a, 0.95);
+        exitBg.fillRoundedRect(exitX - exitBtnW / 2, exitY - exitBtnH / 2, exitBtnW, exitBtnH, 8);
+        exitBg.lineStyle(2, 0xffffff, 0.7);
+        exitBg.strokeRoundedRect(exitX - exitBtnW / 2, exitY - exitBtnH / 2, exitBtnW, exitBtnH, 8);
+        this.interiorElements.push(exitBg);
+
+        const exitText = this.add.text(exitX, exitY, '✕ Exit', {
+            fontSize: '16px',
+            color: '#ffffff',
+            stroke: '#000000',
+            strokeThickness: 2
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(54)
+            .setInteractive(new Phaser.Geom.Rectangle(-exitBtnW / 2, -exitBtnH / 2, exitBtnW, exitBtnH), Phaser.Geom.Rectangle.Contains);
+        exitText.on('pointerdown', () => this.closeHouseInterior());
+        this.interiorElements.push(exitText);
+    }
+
+    closeHouseInterior() {
+        if (!this.interiorElements) return;
+        this.interiorElements.forEach(el => el.destroy());
+        this.interiorElements = null;
     }
 
     createDpad() {
@@ -336,6 +513,12 @@ class GameScene extends Phaser.Scene {
     }
 
     update() {
+        // Freeze player while the house interior is open
+        if (this.interiorElements) {
+            this.player.setVelocity(0, 0);
+            return;
+        }
+
         const speed = 220;
         let vx = 0;
         let vy = 0;
@@ -365,6 +548,28 @@ class GameScene extends Phaser.Scene {
         if (this.shieldDisplay) {
             const offsetX = this.player.flipX ? this.shieldOffset : -this.shieldOffset;
             this.shieldDisplay.setPosition(this.player.x + offsetX, this.player.y);
+        }
+
+        // Show door button when player is near a house door
+        const doorProximity = 80;
+        let nearIndex = -1;
+        for (let i = 0; i < this.houseDoors.length; i++) {
+            const door = this.houseDoors[i];
+            if (Math.abs(this.player.x - door.x) < doorProximity &&
+                Math.abs(this.player.y - door.y) < doorProximity) {
+                nearIndex = i;
+                break;
+            }
+        }
+
+        if (nearIndex !== this.nearDoorIndex) {
+            if (this.nearDoorIndex >= 0) {
+                this.houseDoorButtons[this.nearDoorIndex].setVisible(false);
+            }
+            if (nearIndex >= 0) {
+                this.houseDoorButtons[nearIndex].setVisible(true);
+            }
+            this.nearDoorIndex = nearIndex;
         }
     }
 }
