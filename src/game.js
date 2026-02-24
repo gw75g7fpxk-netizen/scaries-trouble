@@ -1,17 +1,29 @@
 const WORLD_WIDTH = 3200;
 const WORLD_HEIGHT = 2400;
+const VILLAIN_SPEED = 80;
+const VILLAIN_ATTACK_RATE = 120;
+const VILLAIN_ATTACK_RANGE = 90;
+const PLAYER_ATTACK_RANGE = 80;
+const PLAYER_INVINCIBILITY = 90;
 
 class GameScene extends Phaser.Scene {
     constructor() {
         super({ key: 'GameScene' });
         this.dpad = { up: false, down: false, left: false, right: false };
-        this.playerHealth = 3;
+        this.playerHealth = 6; // 6 half-hearts = 3 full hearts
         this.isAttacking = false;
         this.isShielding = false;
         this.shieldOffset = 40;
         this.attackOffset = 50;
         this.nearDoorIndex = -1;
         this.interiorElements = null;
+        this.villainHealth = 10; // 10 half-hearts = 5 full hearts
+        this.villainMaxHealth = 10;
+        this.villainAttackTimer = 0;
+        this.playerHitTimer = 0;
+        this.villainHitTimer = 0;
+        this.villainDead = false;
+        this.gameOverState = false;
     }
 
     preload() {
@@ -66,9 +78,17 @@ class GameScene extends Phaser.Scene {
 
         // Health hearts (top-left)
         this.createHearts();
+        this.updatePlayerHearts();
 
         // Attack and shield buttons (bottom-right)
         this.createActionButtons();
+
+        // Villain (verde bad guy)
+        this.createVillain();
+        this.createVillainHearts();
+
+        // Spacebar attack shortcut
+        this.attackKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
 
         // Resize listener
         this.scale.on('resize', this.onResize, this);
@@ -390,6 +410,20 @@ class GameScene extends Phaser.Scene {
         }
     }
 
+    updatePlayerHearts() {
+        const maxHearts = 3;
+        for (let i = 0; i < maxHearts; i++) {
+            const halfValue = this.playerHealth - i * 2;
+            if (halfValue >= 2) {
+                this.heartDisplays[i].setText('♥').setColor('#e03030');
+            } else if (halfValue === 1) {
+                this.heartDisplays[i].setText('♥').setColor('#e08000');
+            } else {
+                this.heartDisplays[i].setText('♡').setColor('#444444');
+            }
+        }
+    }
+
     createActionButtons() {
         const btnSize = 60;
         const gap = 14;
@@ -461,7 +495,7 @@ class GameScene extends Phaser.Scene {
     }
 
     performAttack() {
-        if (this.isAttacking) return;
+        if (this.isAttacking || this.gameOverState) return;
         this.isAttacking = true;
 
         const offsetX = this.player.flipX ? -this.attackOffset : this.attackOffset;
@@ -474,6 +508,28 @@ class GameScene extends Phaser.Scene {
 
         const startAngle = this.player.flipX ? 60 : -60;
         sword.setAngle(startAngle);
+
+        // Check if villain is in attack range
+        if (!this.villainDead && this.villainHitTimer <= 0) {
+            const dist = Phaser.Math.Distance.Between(
+                this.player.x + offsetX, this.player.y,
+                this.villain.x, this.villain.y
+            );
+            if (dist < PLAYER_ATTACK_RANGE) {
+                this.villainHealth = Math.max(0, this.villainHealth - 1);
+                this.villainHitTimer = 30;
+                this.tweens.add({
+                    targets: this.villain,
+                    alpha: 0,
+                    duration: 80,
+                    yoyo: true,
+                    repeat: 2
+                });
+                if (this.villainHealth <= 0) {
+                    this.defeatVillain();
+                }
+            }
+        }
 
         this.tweens.add({
             targets: sword,
@@ -506,6 +562,152 @@ class GameScene extends Phaser.Scene {
         }
     }
 
+    createVillain() {
+        // Build a verde (green) villain texture using graphics
+        const villainW = 64;
+        const villainH = 80;
+        const gfx = this.add.graphics();
+        gfx.fillStyle(0x22aa44, 1);
+        gfx.fillRoundedRect(0, 0, villainW, villainH, 8);
+        // Evil red eyes
+        gfx.fillStyle(0xff2200, 1);
+        gfx.fillCircle(20, 26, 8);
+        gfx.fillCircle(44, 26, 8);
+        gfx.fillStyle(0x000000, 1);
+        gfx.fillCircle(22, 26, 4);
+        gfx.fillCircle(46, 26, 4);
+        // Menacing mouth
+        gfx.fillStyle(0x880000, 1);
+        gfx.fillRect(16, 52, 32, 12);
+        gfx.fillStyle(0xffffff, 1);
+        gfx.fillRect(18, 54, 6, 8);
+        gfx.fillRect(28, 54, 6, 8);
+        gfx.fillRect(38, 54, 6, 8);
+        gfx.generateTexture('villain', villainW, villainH);
+        gfx.destroy();
+
+        const vx = Math.round(WORLD_WIDTH * 0.5);
+        const vy = Math.round(WORLD_HEIGHT * 0.45);
+        this.villain = this.physics.add.image(vx, vy, 'villain');
+        this.villain.setCollideWorldBounds(true);
+        this.villain.setDepth(5);
+
+        // Villain collides with house walls
+        this.houseZones.forEach(zone => {
+            this.physics.add.collider(this.villain, zone);
+        });
+    }
+
+    createVillainHearts() {
+        const maxHearts = 5;
+        this.villainHeartDisplays = [];
+        for (let i = 0; i < maxHearts; i++) {
+            const heart = this.add.text(0, 0, '♥', {
+                fontSize: '20px',
+                color: '#e03030',
+                stroke: '#000000',
+                strokeThickness: 2
+            }).setOrigin(0.5).setDepth(20);
+            this.villainHeartDisplays.push(heart);
+        }
+    }
+
+    updateVillainHearts() {
+        if (this.villainDead) {
+            this.villainHeartDisplays.forEach(h => h.setVisible(false));
+            return;
+        }
+        const maxHearts = 5;
+        const spacing = 22;
+        const totalW = (maxHearts - 1) * spacing;
+        for (let i = 0; i < maxHearts; i++) {
+            const hx = this.villain.x - totalW / 2 + i * spacing;
+            const hy = this.villain.y - 60;
+            this.villainHeartDisplays[i].setPosition(hx, hy);
+            const halfValue = this.villainHealth - i * 2;
+            if (halfValue >= 2) {
+                this.villainHeartDisplays[i].setText('♥').setColor('#e03030');
+            } else if (halfValue === 1) {
+                this.villainHeartDisplays[i].setText('♥').setColor('#e08000');
+            } else {
+                this.villainHeartDisplays[i].setText('♡').setColor('#444444');
+            }
+        }
+    }
+
+    villainAttackPlayer() {
+        this.villainAttackTimer = VILLAIN_ATTACK_RATE;
+        this.playerHitTimer = PLAYER_INVINCIBILITY;
+        this.playerHealth = Math.max(0, this.playerHealth - 1);
+        this.updatePlayerHearts();
+
+        // Flash player to show damage
+        this.tweens.add({
+            targets: this.player,
+            alpha: 0,
+            duration: 80,
+            yoyo: true,
+            repeat: 2
+        });
+
+        // Attack visual from villain
+        const slash = this.add.text(
+            this.player.x, this.player.y - 20,
+            '💥',
+            { fontSize: '30px' }
+        ).setOrigin(0.5).setDepth(15);
+        this.tweens.add({
+            targets: slash,
+            alpha: 0,
+            y: slash.y - 30,
+            duration: 400,
+            onComplete: () => slash.destroy()
+        });
+
+        if (this.playerHealth <= 0) {
+            this.gameOver();
+        }
+    }
+
+    defeatVillain() {
+        this.villainDead = true;
+        this.tweens.add({
+            targets: this.villain,
+            alpha: 0,
+            scaleX: 2,
+            scaleY: 2,
+            duration: 600,
+            ease: 'Power2',
+            onComplete: () => {
+                this.villain.setVisible(false);
+                if (this.villain.body) this.villain.body.enable = false;
+            }
+        });
+
+        const { width, height } = this.scale;
+        this.add.text(width / 2, height / 2, '🎉 Villain Defeated!', {
+            fontSize: '32px',
+            color: '#ffd700',
+            stroke: '#000000',
+            strokeThickness: 4
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(100);
+    }
+
+    gameOver() {
+        this.gameOverState = true;
+        this.player.setVelocity(0, 0);
+        this.player.body.enable = false;
+        const { width, height } = this.scale;
+        this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.7)
+            .setScrollFactor(0).setDepth(90);
+        this.add.text(width / 2, height / 2, '💀 Game Over', {
+            fontSize: '40px',
+            color: '#ff3030',
+            stroke: '#000000',
+            strokeThickness: 5
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(100);
+    }
+
     onResize(gameSize) {
         this.physics.world.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
         this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
@@ -517,6 +719,14 @@ class GameScene extends Phaser.Scene {
         if (this.interiorElements) {
             this.player.setVelocity(0, 0);
             return;
+        }
+
+        // Stop all movement after game over
+        if (this.gameOverState) return;
+
+        // Spacebar attack
+        if (Phaser.Input.Keyboard.JustDown(this.attackKey)) {
+            this.performAttack();
         }
 
         const speed = 220;
@@ -548,6 +758,29 @@ class GameScene extends Phaser.Scene {
         if (this.shieldDisplay) {
             const offsetX = this.player.flipX ? this.shieldOffset : -this.shieldOffset;
             this.shieldDisplay.setPosition(this.player.x + offsetX, this.player.y);
+        }
+
+        // Villain AI
+        if (!this.villainDead) {
+            if (this.villainAttackTimer > 0) this.villainAttackTimer--;
+            if (this.playerHitTimer > 0) this.playerHitTimer--;
+            if (this.villainHitTimer > 0) this.villainHitTimer--;
+
+            const dx = this.player.x - this.villain.x;
+            const dy = this.player.y - this.villain.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist >= VILLAIN_ATTACK_RANGE) {
+                this.villain.setVelocity((dx / dist) * VILLAIN_SPEED, (dy / dist) * VILLAIN_SPEED);
+                this.villain.setFlipX(dx < 0);
+            } else {
+                this.villain.setVelocity(0, 0);
+                if (this.villainAttackTimer <= 0 && this.playerHitTimer <= 0) {
+                    this.villainAttackPlayer();
+                }
+            }
+
+            this.updateVillainHearts();
         }
 
         // Show door button when player is near a house door
