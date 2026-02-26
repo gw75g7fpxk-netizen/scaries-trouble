@@ -16,6 +16,7 @@ class GameScene extends Phaser.Scene {
         this.villainHealth = 5;
         this.villainMaxHealth = 5;
         this.villainInvincible = false;
+        this.villainFleeing = false;
         this.playerInvincible = false;
         this.villainNextAttackTime = 0;
     }
@@ -697,10 +698,11 @@ class GameScene extends Phaser.Scene {
         });
 
         this.villainInvincible = true;
-        this.time.delayedCall(500, () => { this.villainInvincible = false; });
 
         if (this.villainHealth <= 0) {
             this.villainDie();
+        } else {
+            this.time.delayedCall(500, () => { this.villainInvincible = false; });
         }
     }
 
@@ -717,10 +719,31 @@ class GameScene extends Phaser.Scene {
             duration: 800,
             onComplete: () => poof.destroy()
         });
-        this.villain.destroy();
-        this.villain = null;
-        this.villainHeartDisplays.forEach(h => h.destroy());
-        this.villainHeartDisplays = [];
+
+        // Change villain to a scared yellow/orange color and make it flee
+        this.villain.setTint(0xffcc00);
+        this.villainFleeing = true;
+        this.villainInvincible = true;
+
+        // After fleeing, respawn from the opposite side of the world with full health
+        this.time.delayedCall(2000, () => {
+            if (!this.villain) return;
+            const spawnX = this.player.x < WORLD_WIDTH / 2
+                ? WORLD_WIDTH - 200
+                : 200;
+            const spawnY = Phaser.Math.Between(
+                Math.round(WORLD_HEIGHT * 0.1),
+                Math.round(WORLD_HEIGHT * 0.9)
+            );
+            this.villain.setPosition(spawnX, spawnY);
+            this.villain.setVelocity(0, 0);
+            this.villain.clearTint();
+            this.villainFleeing = false;
+            this.villainInvincible = false;
+            this.villainHealth = this.villainMaxHealth;
+            this.updateVillainHeartPositions();
+            this.updateVillainHearts();
+        });
     }
 
     villainAttackPlayer() {
@@ -807,32 +830,45 @@ class GameScene extends Phaser.Scene {
             const dx = this.player.x - this.villain.x;
             const dy = this.player.y - this.villain.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
-            const villainSpeed = 100;
-            const stopRange = 55;
-            const attackRange = 80;
 
-            if (dist > stopRange) {
+            if (this.villainFleeing) {
+                // Run away from player at high speed
+                const fleeSpeed = 200;
+                const nonZeroDist = dist || 1;
                 this.villain.setVelocity(
-                    (dx / dist) * villainSpeed,
-                    (dy / dist) * villainSpeed
+                    (-dx / nonZeroDist) * fleeSpeed,
+                    (-dy / nonZeroDist) * fleeSpeed
                 );
+                if (dx > 0) this.villain.setFlipX(true);
+                else if (dx < 0) this.villain.setFlipX(false);
             } else {
-                this.villain.setVelocity(0, 0);
-            }
+                const villainSpeed = 100;
+                const stopRange = 55;
+                const attackRange = 80;
 
-            // Flip villain sprite based on direction of movement
-            if (dx < 0) this.villain.setFlipX(true);
-            else if (dx > 0) this.villain.setFlipX(false);
+                if (dist > stopRange) {
+                    this.villain.setVelocity(
+                        (dx / dist) * villainSpeed,
+                        (dy / dist) * villainSpeed
+                    );
+                } else {
+                    this.villain.setVelocity(0, 0);
+                }
+
+                // Flip villain sprite based on direction of movement
+                if (dx < 0) this.villain.setFlipX(true);
+                else if (dx > 0) this.villain.setFlipX(false);
+
+                // Villain attacks player when close enough
+                const now = this.time.now;
+                if (dist < attackRange && now > this.villainNextAttackTime) {
+                    this.villainAttackPlayer();
+                    this.villainNextAttackTime = now + 1500;
+                }
+            }
 
             // Keep villain heart display above villain
             this.updateVillainHeartPositions();
-
-            // Villain attacks player when close enough
-            const now = this.time.now;
-            if (dist < attackRange && now > this.villainNextAttackTime) {
-                this.villainAttackPlayer();
-                this.villainNextAttackTime = now + 1500;
-            }
         }
 
         // Show door button when player is near a house door
