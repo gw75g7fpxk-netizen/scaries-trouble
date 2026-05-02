@@ -1,7 +1,57 @@
+import Phaser from 'phaser';
+
 const WORLD_WIDTH = 3200;
 const WORLD_HEIGHT = 2400;
 
+interface DpadState {
+    up: boolean;
+    down: boolean;
+    left: boolean;
+    right: boolean;
+}
+
+interface HouseDoor {
+    x: number;
+    y: number;
+}
+
+type WasdKeys = {
+    up: Phaser.Input.Keyboard.Key;
+    down: Phaser.Input.Keyboard.Key;
+    left: Phaser.Input.Keyboard.Key;
+    right: Phaser.Input.Keyboard.Key;
+};
+
 class GameScene extends Phaser.Scene {
+    private dpad: DpadState;
+    private playerHealth: number;
+    private isAttacking: boolean;
+    private isShielding: boolean;
+    private shieldOffset: number;
+    private attackOffset: number;
+    private nearDoorIndex: number;
+    private interiorElements: Phaser.GameObjects.GameObject[] | null;
+    private villainHealth: number;
+    private villainMaxHealth: number;
+    private villainInvincible: boolean;
+    private playerInvincible: boolean;
+    private villainNextAttackTime: number;
+    private safeTop: number;
+    private safeBottom: number;
+    private player!: Phaser.Physics.Arcade.Image;
+    private villain: Phaser.Physics.Arcade.Image | null;
+    private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
+    private wasd!: WasdKeys;
+    private dpadButtons: Record<string, Phaser.GameObjects.Container>;
+    private heartDisplays: Phaser.GameObjects.Text[];
+    private villainHeartDisplays: Phaser.GameObjects.Text[];
+    private houseZones: Phaser.GameObjects.Zone[];
+    private houseDoors: HouseDoor[];
+    private openDoors: Set<number>;
+    private houseDoorGraphics: Phaser.GameObjects.Graphics[];
+    private houseDoorButtons: Phaser.GameObjects.Container[];
+    private shieldDisplay: Phaser.GameObjects.Text | null;
+
     constructor() {
         super({ key: 'GameScene' });
         this.dpad = { up: false, down: false, left: false, right: false };
@@ -12,20 +62,31 @@ class GameScene extends Phaser.Scene {
         this.attackOffset = 50;
         this.nearDoorIndex = -1;
         this.interiorElements = null;
-        // Villain state
         this.villainHealth = 5;
         this.villainMaxHealth = 5;
         this.villainInvincible = false;
         this.playerInvincible = false;
         this.villainNextAttackTime = 0;
+        this.safeTop = 0;
+        this.safeBottom = 0;
+        this.villain = null;
+        this.dpadButtons = {};
+        this.heartDisplays = [];
+        this.villainHeartDisplays = [];
+        this.houseZones = [];
+        this.houseDoors = [];
+        this.openDoors = new Set();
+        this.houseDoorGraphics = [];
+        this.houseDoorButtons = [];
+        this.shieldDisplay = null;
     }
 
-    preload() {
+    preload(): void {
         this.load.image('player', 'assets/images/main-character.png');
     }
 
-    create() {
-        const { width, height } = this.scale;
+    create(): void {
+        const { width } = this.scale;
 
         // Read safe area insets (for devices with notches/home bars)
         const rootStyle = getComputedStyle(document.documentElement);
@@ -64,13 +125,13 @@ class GameScene extends Phaser.Scene {
         this.cameras.main.setDeadzone(this.scale.width * 0.4, this.scale.height * 0.4);
 
         // Keyboard input
-        this.cursors = this.input.keyboard.createCursorKeys();
-        this.wasd = this.input.keyboard.addKeys({
+        this.cursors = this.input.keyboard!.createCursorKeys();
+        this.wasd = this.input.keyboard!.addKeys({
             up: Phaser.Input.Keyboard.KeyCodes.W,
             down: Phaser.Input.Keyboard.KeyCodes.S,
             left: Phaser.Input.Keyboard.KeyCodes.A,
             right: Phaser.Input.Keyboard.KeyCodes.D
-        });
+        }) as WasdKeys;
 
         // D-pad
         this.createDpad();
@@ -92,7 +153,7 @@ class GameScene extends Phaser.Scene {
         this.scale.on('resize', this.onResize, this);
     }
 
-    createHouses() {
+    createHouses(): void {
         const houseW = 72;
         const houseH = 56;
         const roofH = 36;
@@ -215,7 +276,7 @@ class GameScene extends Phaser.Scene {
         });
     }
 
-    createWorldDoorButton(x, y, houseIndex) {
+    createWorldDoorButton(x: number, y: number, houseIndex: number): Phaser.GameObjects.Container {
         const btnW = 72, btnH = 28;
         const container = this.add.container(x, y);
         container.setDepth(5);
@@ -245,7 +306,7 @@ class GameScene extends Phaser.Scene {
         return container;
     }
 
-    openDoor(houseIndex) {
+    openDoor(houseIndex: number): void {
         this.openDoors.add(houseIndex);
 
         // Redraw door as a dark open doorway
@@ -259,7 +320,7 @@ class GameScene extends Phaser.Scene {
         this.showHouseInterior(houseIndex);
     }
 
-    showHouseInterior(houseIndex) {
+    showHouseInterior(_houseIndex: number): void {
         // Only one interior view can be shown at a time
         if (this.interiorElements) return;
 
@@ -358,13 +419,13 @@ class GameScene extends Phaser.Scene {
         this.interiorElements.push(exitText);
     }
 
-    closeHouseInterior() {
+    closeHouseInterior(): void {
         if (!this.interiorElements) return;
         this.interiorElements.forEach(el => el.destroy());
         this.interiorElements = null;
     }
 
-    createDpad() {
+    createDpad(): void {
         const btnSize = 52;
         const gap = 6;
         const baseMargin = 16;
@@ -407,7 +468,7 @@ class GameScene extends Phaser.Scene {
             container.setInteractive(hitArea, Phaser.Geom.Rectangle.Contains);
 
             container.on('pointerdown', () => {
-                this.dpad[dir] = true;
+                this.dpad[dir as keyof DpadState] = true;
                 bg.clear();
                 bg.fillStyle(0x555555, 0.9);
                 bg.fillRoundedRect(-btnSize / 2, -btnSize / 2, btnSize, btnSize, 10);
@@ -416,7 +477,7 @@ class GameScene extends Phaser.Scene {
             });
 
             const release = () => {
-                this.dpad[dir] = false;
+                this.dpad[dir as keyof DpadState] = false;
                 bg.clear();
                 bg.fillStyle(0x222222, 0.75);
                 bg.fillRoundedRect(-btnSize / 2, -btnSize / 2, btnSize, btnSize, 10);
@@ -434,7 +495,7 @@ class GameScene extends Phaser.Scene {
         this.input.addPointer(3);
     }
 
-    createHearts() {
+    createHearts(): void {
         const baseMargin = 16;
         const margin = baseMargin + this.safeTop;
         const heartSpacing = 34;
@@ -453,7 +514,7 @@ class GameScene extends Phaser.Scene {
         }
     }
 
-    createActionButtons() {
+    createActionButtons(): void {
         const baseMargin = 16;
         const btnSize = 60;
         const gap = 14;
@@ -467,7 +528,7 @@ class GameScene extends Phaser.Scene {
         this.createActionButton(shieldX, btnY, '🛡', 0x1a3a8b, 'shield');
     }
 
-    createActionButton(x, y, label, color, action) {
+    createActionButton(x: number, y: number, label: string, color: number, action: 'attack' | 'shield'): void {
         const btnSize = 60;
         const container = this.add.container(x, y);
         container.setDepth(10);
@@ -523,7 +584,7 @@ class GameScene extends Phaser.Scene {
         container.on('pointerout', release);
     }
 
-    performAttack() {
+    performAttack(): void {
         if (this.isAttacking) return;
         this.isAttacking = true;
 
@@ -560,7 +621,7 @@ class GameScene extends Phaser.Scene {
         });
     }
 
-    showShield() {
+    showShield(): void {
         if (this.shieldDisplay) return;
         const offsetX = this.player.flipX ? this.shieldOffset : -this.shieldOffset;
         this.shieldDisplay = this.add.text(
@@ -571,7 +632,7 @@ class GameScene extends Phaser.Scene {
         ).setOrigin(0.5).setDepth(15);
     }
 
-    hideShield() {
+    hideShield(): void {
         if (this.shieldDisplay) {
             this.shieldDisplay.destroy();
             this.shieldDisplay = null;
@@ -580,7 +641,7 @@ class GameScene extends Phaser.Scene {
 
     // ── Villain ──────────────────────────────────────────────────────────────
 
-    createVillainTexture() {
+    createVillainTexture(): void {
         if (this.textures.exists('villain')) return;
         const w = 64, h = 80;
         const gfx = this.add.graphics();
@@ -618,7 +679,7 @@ class GameScene extends Phaser.Scene {
         gfx.destroy();
     }
 
-    createVillain() {
+    createVillain(): void {
         const spawnX = Math.round(WORLD_WIDTH * 0.6);
         const spawnY = Math.round(WORLD_HEIGHT * 0.35);
         this.villain = this.physics.add.image(spawnX, spawnY, 'villain');
@@ -642,7 +703,7 @@ class GameScene extends Phaser.Scene {
         this.updateVillainHearts();
     }
 
-    updatePlayerHearts() {
+    updatePlayerHearts(): void {
         if (!this.heartDisplays) return;
         this.heartDisplays.forEach((heart, i) => {
             const v = this.playerHealth - i;
@@ -656,7 +717,7 @@ class GameScene extends Phaser.Scene {
         });
     }
 
-    updateVillainHearts() {
+    updateVillainHearts(): void {
         if (!this.villainHeartDisplays) return;
         this.villainHeartDisplays.forEach((heart, i) => {
             const v = this.villainHealth - i;
@@ -670,7 +731,7 @@ class GameScene extends Phaser.Scene {
         });
     }
 
-    updateVillainHeartPositions() {
+    updateVillainHeartPositions(): void {
         if (!this.villain || !this.villainHeartDisplays || this.villainHeartDisplays.length === 0) return;
         const count = this.villainHeartDisplays.length;
         const spacing = 20;
@@ -681,7 +742,7 @@ class GameScene extends Phaser.Scene {
         });
     }
 
-    hitVillain() {
+    hitVillain(): void {
         if (this.villainInvincible || !this.villain || !this.villain.active) return;
         this.villainHealth = Math.max(0, this.villainHealth - 0.5);
         this.updateVillainHearts();
@@ -704,7 +765,8 @@ class GameScene extends Phaser.Scene {
         }
     }
 
-    villainDie() {
+    villainDie(): void {
+        if (!this.villain) return;
         const poof = this.add.text(this.villain.x, this.villain.y, '💨', {
             fontSize: '52px'
         }).setDepth(25).setOrigin(0.5);
@@ -713,7 +775,7 @@ class GameScene extends Phaser.Scene {
             alpha: 0,
             scaleX: 2,
             scaleY: 2,
-            y: this.villain.y - 80,
+            y: poof.y - 80,
             duration: 800,
             onComplete: () => poof.destroy()
         });
@@ -723,7 +785,7 @@ class GameScene extends Phaser.Scene {
         this.villainHeartDisplays = [];
     }
 
-    villainAttackPlayer() {
+    villainAttackPlayer(): void {
         if (this.playerInvincible) return;
 
         // Attack flash at player position
@@ -756,7 +818,7 @@ class GameScene extends Phaser.Scene {
 
     // ── Resize ───────────────────────────────────────────────────────────────
 
-    onResize(gameSize) {
+    onResize(gameSize: Phaser.Structs.Size): void {
         this.physics.world.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
         this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
         this.cameras.main.setDeadzone(gameSize.width * 0.4, gameSize.height * 0.4);
@@ -764,7 +826,7 @@ class GameScene extends Phaser.Scene {
 
     // ── Update loop ──────────────────────────────────────────────────────────
 
-    update() {
+    update(): void {
         // Freeze player while the house interior is open
         if (this.interiorElements) {
             this.player.setVelocity(0, 0);
@@ -859,13 +921,13 @@ class GameScene extends Phaser.Scene {
     }
 }
 
-const config = {
+const config: Phaser.Types.Core.GameConfig = {
     type: Phaser.AUTO,
     parent: 'game-container',
     backgroundColor: '#5c8a3c',
     physics: {
         default: 'arcade',
-        arcade: { gravity: { y: 0 }, debug: false }
+        arcade: { gravity: { x: 0, y: 0 }, debug: false }
     },
     scale: {
         mode: Phaser.Scale.RESIZE,
