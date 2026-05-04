@@ -3,6 +3,12 @@ import Phaser from 'phaser';
 const WORLD_WIDTH = 3200;
 const WORLD_HEIGHT = 2400;
 
+const HOUSE_W = 144;
+const HOUSE_H = 112;
+const ROOF_H = 72;
+const DOOR_W = 28;
+const DOOR_H = 40;
+
 interface DpadState {
     up: boolean;
     down: boolean;
@@ -42,6 +48,8 @@ class GameScene extends Phaser.Scene {
     private villain: Phaser.Physics.Arcade.Image | null;
     private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
     private wasd!: WasdKeys;
+    private spaceKey!: Phaser.Input.Keyboard.Key;
+    private oKey!: Phaser.Input.Keyboard.Key;
     private dpadButtons: Record<string, Phaser.GameObjects.Container>;
     private heartDisplays: Phaser.GameObjects.Text[];
     private villainHeartDisplays: Phaser.GameObjects.Text[];
@@ -49,8 +57,14 @@ class GameScene extends Phaser.Scene {
     private houseDoors: HouseDoor[];
     private openDoors: Set<number>;
     private houseDoorGraphics: Phaser.GameObjects.Graphics[];
-    private houseDoorButtons: Phaser.GameObjects.Container[];
+    private doorActionButton: Phaser.GameObjects.Container | null;
     private shieldDisplay: Phaser.GameObjects.Text | null;
+    private owlTriggered: boolean;
+    private greenHousePositions: { cx: number; baseY: number }[];
+    private letterObject: Phaser.GameObjects.Text | null;
+    private letterBlown: boolean;
+    private letterHouseCx: number;
+    private letterHouseBaseY: number;
 
     constructor() {
         super({ key: 'GameScene' });
@@ -77,8 +91,14 @@ class GameScene extends Phaser.Scene {
         this.houseDoors = [];
         this.openDoors = new Set();
         this.houseDoorGraphics = [];
-        this.houseDoorButtons = [];
+        this.doorActionButton = null;
         this.shieldDisplay = null;
+        this.owlTriggered = false;
+        this.greenHousePositions = [];
+        this.letterObject = null;
+        this.letterBlown = false;
+        this.letterHouseCx = 0;
+        this.letterHouseBaseY = 0;
     }
 
     preload(): void {
@@ -132,6 +152,8 @@ class GameScene extends Phaser.Scene {
             left: Phaser.Input.Keyboard.KeyCodes.A,
             right: Phaser.Input.Keyboard.KeyCodes.D
         }) as WasdKeys;
+        this.spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+        this.oKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.O);
 
         // D-pad
         this.createDpad();
@@ -142,9 +164,8 @@ class GameScene extends Phaser.Scene {
         // Attack and shield buttons (bottom-right)
         this.createActionButtons();
 
-        // Villain
-        this.createVillainTexture();
-        this.createVillain();
+        // Single screen-space door button (shown when near a door)
+        this.createDoorActionButton();
 
         // Initial heart states
         this.updatePlayerHearts();
@@ -154,14 +175,15 @@ class GameScene extends Phaser.Scene {
     }
 
     createHouses(): void {
-        const houseW = 72;
-        const houseH = 56;
-        const roofH = 36;
+        const houseW = HOUSE_W;
+        const houseH = HOUSE_H;
+        const roofH = ROOF_H;
+        const doorW = DOOR_W;
+        const doorH = DOOR_H;
         const wallColors = [0xc0704a, 0xa0b860, 0x6890c8];
         const roofColors = [0x8b2020, 0x5a7a20, 0x204880];
         const doorColor   = 0x6b3a1f;
         const windowColor = 0xd4eeff;
-        const doorW = 14, doorH = 20;
 
         // Houses spread across the world at various positions
         const housePositions = [
@@ -181,7 +203,6 @@ class GameScene extends Phaser.Scene {
         this.houseDoors = [];
         this.openDoors = new Set();
         this.houseDoorGraphics = [];
-        this.houseDoorButtons = [];
 
         housePositions.forEach(({ cx, baseY, colorIdx }, index) => {
             // Position the graphics object at the house location so camera culling works correctly
@@ -202,11 +223,11 @@ class GameScene extends Phaser.Scene {
             );
 
             // Windows (two small squares)
-            const winSize = 13;
-            const winY = 12;
+            const winSize = 26;
+            const winY = 24;
             g.fillStyle(windowColor, 1);
-            g.fillRect(-houseW / 2 + 10, winY, winSize, winSize);
-            g.fillRect(houseW / 2 - 10 - winSize, winY, winSize, winSize);
+            g.fillRect(-houseW / 2 + 20, winY, winSize, winSize);
+            g.fillRect(houseW / 2 - 20 - winSize, winY, winSize, winSize);
 
             // Outline
             g.lineStyle(2, 0x000000, 0.5);
@@ -223,36 +244,41 @@ class GameScene extends Phaser.Scene {
 
             // Bushes in front of house (three bushes around the door area)
             g.fillStyle(0x2a7d1a, 1);
-            g.fillCircle(-houseW / 2 + 9, houseH + 5, 8);
-            g.fillCircle(houseW / 2 - 9, houseH + 5, 8);
-            g.fillCircle(-doorW / 2 - 11, houseH + 5, 7);
+            g.fillCircle(-houseW / 2 + 18, houseH + 10, 16);
+            g.fillCircle(houseW / 2 - 18, houseH + 10, 16);
+            g.fillCircle(-doorW / 2 - 22, houseH + 10, 14);
+
+            // Track green houses for the owl event
+            if (colorIdx === 1) {
+                this.greenHousePositions.push({ cx, baseY });
+            }
 
             // For blue houses: two kids playing ball outside with a red ball
             if (colorIdx === 2) {
-                const frontY = houseH + 52; // yard area below the house and bushes
+                const frontY = houseH + 104;
                 // Kid 1 (left)
-                const k1x = -28;
+                const k1x = -56;
                 g.fillStyle(0xffcc88, 1);
-                g.fillCircle(k1x, frontY - 14, 5);
+                g.fillCircle(k1x, frontY - 28, 10);
                 g.fillStyle(0xe03030, 1);
-                g.fillRect(k1x - 4, frontY - 9, 8, 10);
+                g.fillRect(k1x - 8, frontY - 18, 16, 20);
                 g.fillStyle(0x4040a0, 1);
-                g.fillRect(k1x - 4, frontY + 1, 3, 7);
-                g.fillRect(k1x + 1, frontY + 1, 3, 7);
+                g.fillRect(k1x - 8, frontY + 2, 6, 14);
+                g.fillRect(k1x + 2, frontY + 2, 6, 14);
                 // Kid 2 (right)
-                const k2x = 28;
+                const k2x = 56;
                 g.fillStyle(0xffcc88, 1);
-                g.fillCircle(k2x, frontY - 14, 5);
+                g.fillCircle(k2x, frontY - 28, 10);
                 g.fillStyle(0x30a040, 1);
-                g.fillRect(k2x - 4, frontY - 9, 8, 10);
+                g.fillRect(k2x - 8, frontY - 18, 16, 20);
                 g.fillStyle(0x4040a0, 1);
-                g.fillRect(k2x - 4, frontY + 1, 3, 7);
-                g.fillRect(k2x + 1, frontY + 1, 3, 7);
+                g.fillRect(k2x - 8, frontY + 2, 6, 14);
+                g.fillRect(k2x + 2, frontY + 2, 6, 14);
                 // Red ball between the kids
                 g.fillStyle(0xff2020, 1);
-                g.fillCircle(0, frontY - 6, 6);
+                g.fillCircle(0, frontY - 12, 12);
                 g.fillStyle(0xffffff, 0.5);
-                g.fillCircle(-2, frontY - 8, 2);
+                g.fillCircle(-4, frontY - 16, 4);
             }
 
             // Door drawn in its own graphics so it can be toggled open/closed
@@ -266,29 +292,30 @@ class GameScene extends Phaser.Scene {
             this.physics.add.existing(zone, true);
             this.houseZones.push(zone);
 
-            // Store the world-space door position (bottom-center of house wall)
-            this.houseDoors.push({ x: cx, y: baseY + houseH });
-
-            // Door button positioned above the roof peak, hidden until player is nearby
-            const btn = this.createWorldDoorButton(cx, baseY - roofH - 14, index);
-            btn.setVisible(false);
-            this.houseDoorButtons.push(btn);
+            // Store the house center for proximity detection
+            this.houseDoors.push({ x: cx, y: baseY + houseH / 2 });
         });
     }
 
-    createWorldDoorButton(x: number, y: number, houseIndex: number): Phaser.GameObjects.Container {
-        const btnW = 72, btnH = 28;
+    createDoorActionButton(): void {
+        const btnW = 120, btnH = 44;
+        const { width, height } = this.scale;
+        const x = width / 2;
+        const y = height - (16 + this.safeBottom) - btnH / 2 - 80;
+
         const container = this.add.container(x, y);
-        container.setDepth(5);
+        container.setDepth(15);
+        container.setScrollFactor(0);
+        container.setVisible(false);
 
         const bg = this.add.graphics();
         bg.fillStyle(0x3a1a00, 0.92);
-        bg.fillRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 7);
+        bg.fillRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 10);
         bg.lineStyle(2, 0xffd700, 1);
-        bg.strokeRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 7);
+        bg.strokeRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 10);
 
-        const text = this.add.text(0, 0, '🚪 Door', {
-            fontSize: '14px',
+        const text = this.add.text(0, 0, '🚪  Door  [O]', {
+            fontSize: '16px',
             color: '#ffd700',
             stroke: '#000000',
             strokeThickness: 2
@@ -300,22 +327,37 @@ class GameScene extends Phaser.Scene {
         container.setInteractive(hitArea, Phaser.Geom.Rectangle.Contains);
 
         container.on('pointerdown', () => {
-            this.openDoor(houseIndex);
+            if (this.nearDoorIndex >= 0) this.toggleDoor(this.nearDoorIndex);
         });
 
-        return container;
+        this.doorActionButton = container;
+    }
+
+    toggleDoor(houseIndex: number): void {
+        if (this.openDoors.has(houseIndex)) {
+            this.closeDoor(houseIndex);
+        } else {
+            this.openDoor(houseIndex);
+        }
+    }
+
+    closeDoor(houseIndex: number): void {
+        this.openDoors.delete(houseIndex);
+        const dg = this.houseDoorGraphics[houseIndex];
+        dg.clear();
+        dg.fillStyle(0x6b3a1f, 1);
+        dg.fillRect(-DOOR_W / 2, HOUSE_H - DOOR_H, DOOR_W, DOOR_H);
+        this.closeHouseInterior();
     }
 
     openDoor(houseIndex: number): void {
         this.openDoors.add(houseIndex);
 
         // Redraw door as a dark open doorway
-        const houseH = 56;
-        const doorW = 14, doorH = 20;
         const dg = this.houseDoorGraphics[houseIndex];
         dg.clear();
         dg.fillStyle(0x1a0800, 1);
-        dg.fillRect(-doorW / 2, houseH - doorH, doorW, doorH);
+        dg.fillRect(-DOOR_W / 2, HOUSE_H - DOOR_H, DOOR_W, DOOR_H);
 
         this.showHouseInterior(houseIndex);
     }
@@ -816,6 +858,91 @@ class GameScene extends Phaser.Scene {
         this.time.delayedCall(1000, () => { this.playerInvincible = false; });
     }
 
+    // ── Owl event ────────────────────────────────────────────────────────────
+
+    launchOwl(targetCx: number, targetBaseY: number): void {
+        const flyY = targetBaseY - ROOF_H - 40;
+        const view = this.cameras.main.worldView;
+        const startX = view.left - 80;
+        const endX = view.right + 80;
+        const duration = 4500;
+
+        const owl = this.add.text(startX, flyY, '🦉', { fontSize: '48px' })
+            .setOrigin(0.5).setDepth(25);
+
+        let letterDropped = false;
+        this.tweens.add({
+            targets: owl,
+            x: endX,
+            duration,
+            ease: 'Linear',
+            onUpdate: () => {
+                if (!letterDropped && owl.x >= targetCx) {
+                    letterDropped = true;
+                    this.dropLetter(targetCx, targetBaseY);
+                }
+            },
+            onComplete: () => owl.destroy()
+        });
+    }
+
+    dropLetter(cx: number, baseY: number): void {
+        this.letterHouseCx = cx;
+        this.letterHouseBaseY = baseY;
+        const landY = baseY - ROOF_H / 2;
+        const letter = this.add.text(cx, baseY - ROOF_H - 30, '✉️', { fontSize: '32px' })
+            .setOrigin(0.5).setDepth(24);
+
+        this.tweens.add({
+            targets: letter,
+            y: landY,
+            duration: 700,
+            ease: 'Bounce.Out',
+            onComplete: () => { this.letterObject = letter; }
+        });
+    }
+
+    blowLetterToPlayer(): void {
+        const letter = this.letterObject!;
+        this.letterObject = null;
+        this.letterBlown = true;
+
+        const headX = this.player.x;
+        const headY = this.player.y - this.player.displayHeight / 2;
+
+        // Phase 1: lift off roof with a sideways gust
+        this.tweens.add({
+            targets: letter,
+            x: letter.x + Phaser.Math.Between(40, 80),
+            y: letter.y - 30,
+            angle: Phaser.Math.Between(20, 45),
+            duration: 300,
+            ease: 'Sine.Out',
+            onComplete: () => {
+                // Phase 2: tumble down onto player's head
+                this.tweens.add({
+                    targets: letter,
+                    x: headX,
+                    y: headY,
+                    angle: 0,
+                    duration: 600,
+                    ease: 'Power2.In',
+                    onComplete: () => {
+                        // Bounce on head then settle
+                        this.tweens.add({
+                            targets: letter,
+                            y: headY + 8,
+                            yoyo: true,
+                            repeat: 1,
+                            duration: 120,
+                            ease: 'Sine.InOut'
+                        });
+                    }
+                });
+            }
+        });
+    }
+
     // ── Resize ───────────────────────────────────────────────────────────────
 
     onResize(gameSize: Phaser.Structs.Size): void {
@@ -827,10 +954,45 @@ class GameScene extends Phaser.Scene {
     // ── Update loop ──────────────────────────────────────────────────────────
 
     update(): void {
+        // O key: close interior if open, otherwise toggle nearest door
+        if (Phaser.Input.Keyboard.JustDown(this.oKey)) {
+            if (this.interiorElements) {
+                this.closeHouseInterior();
+            } else if (this.nearDoorIndex >= 0) {
+                this.toggleDoor(this.nearDoorIndex);
+            }
+        }
+
+        // Owl: trigger once when a green house enters camera view
+        if (!this.owlTriggered && this.greenHousePositions.length > 0) {
+            const view = this.cameras.main.worldView;
+            for (const pos of this.greenHousePositions) {
+                if (view.contains(pos.cx, pos.baseY)) {
+                    this.owlTriggered = true;
+                    this.launchOwl(pos.cx, pos.baseY);
+                    break;
+                }
+            }
+        }
+
+        // Letter: blow onto player's head when they get close to the green house
+        if (this.letterObject && !this.letterBlown) {
+            const dx = this.player.x - this.letterHouseCx;
+            const dy = this.player.y - this.letterHouseBaseY;
+            if (Math.sqrt(dx * dx + dy * dy) < 200) {
+                this.blowLetterToPlayer();
+            }
+        }
+
         // Freeze player while the house interior is open
         if (this.interiorElements) {
             this.player.setVelocity(0, 0);
             return;
+        }
+
+        // Spacebar: attack
+        if (Phaser.Input.Keyboard.JustDown(this.spaceKey)) {
+            this.performAttack();
         }
 
         const speed = 220;
@@ -897,26 +1059,24 @@ class GameScene extends Phaser.Scene {
             }
         }
 
-        // Show door button when player is near a house door
-        const doorProximity = 80;
+        // Show door button when player is near a house (checked against house center)
+        const doorProximity = 160;
         let nearIndex = -1;
         for (let i = 0; i < this.houseDoors.length; i++) {
             const door = this.houseDoors[i];
-            if (Math.abs(this.player.x - door.x) < doorProximity &&
-                Math.abs(this.player.y - door.y) < doorProximity) {
+            const dx = this.player.x - door.x;
+            const dy = this.player.y - door.y;
+            if (Math.sqrt(dx * dx + dy * dy) < doorProximity) {
                 nearIndex = i;
                 break;
             }
         }
 
         if (nearIndex !== this.nearDoorIndex) {
-            if (this.nearDoorIndex >= 0) {
-                this.houseDoorButtons[this.nearDoorIndex].setVisible(false);
-            }
-            if (nearIndex >= 0) {
-                this.houseDoorButtons[nearIndex].setVisible(true);
-            }
             this.nearDoorIndex = nearIndex;
+            if (this.doorActionButton) {
+                this.doorActionButton.setVisible(nearIndex >= 0);
+            }
         }
     }
 }
